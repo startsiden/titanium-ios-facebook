@@ -467,13 +467,24 @@ NSTimeInterval meRequestTimeout = 180.0;
     }, NO);
 }
 
+-(NSDictionary*)parseURLParams:(NSString *)query {
+    NSArray *pairs = [query componentsSeparatedByString:@"&"];
+    NSMutableDictionary *params = [[NSMutableDictionary alloc] init];
+    for (NSString *pair in pairs) {
+        NSArray *kv = [pair componentsSeparatedByString:@"="];
+        NSString *val =
+            [kv[1] stringByReplacingPercentEscapesUsingEncoding:NSUTF8StringEncoding];
+        params[kv[0]] = val;
+    }
+    return params;
+}
+
 -(void)share:(id)args
 {
+    NSDictionary* params = [args objectAtIndex:0];
+    NSString* urlStr = [params objectForKey:@"url"];
     NSLog(@"[DEBUG] facebook share");
-    if ([FBDialogs canPresentShareDialog]){
-        
-        NSDictionary* params = [args objectAtIndex:0];
-        NSString* urlStr = [params objectForKey:@"url"];
+    if ([FBDialogs canPresentShareDialog]){            
         NSURL* linkUrl = [NSURL URLWithString:urlStr];
         NSString* namespaceObject = [params objectForKey:@"namespaceObject"];
         NSString* namespaceAction = [params objectForKey:@"namespaceAction"];
@@ -524,7 +535,37 @@ NSTimeInterval meRequestTimeout = 180.0;
             }
         }, NO);
     } else {
-        NSLog(@"[ERROR] must have Facebook app installed to present Share Dialog");
+        NSLog(@"[DEBUG] facebook web feed dialog");
+        NSLog( urlStr );
+        // Put together the dialog parameters
+        NSDictionary* params = @{@"link": urlStr };
+
+        // Show the feed dialog
+        TiThreadPerformOnMainThread(^{
+                [FBWebDialogs presentFeedDialogModallyWithSession:nil
+                            parameters:params
+                            handler:^(FBWebDialogResult result, NSURL *resultURL, NSError *error) {
+                                if (error) {
+                                    NSLog(@"[DEBUG] Facebook share error %@", error.description);
+                                } else {
+                                    if (result == FBWebDialogResultDialogNotCompleted) {
+                                    // User cancelled.
+                                    NSLog(@"[DEBUG] User cancelled.");
+                                    } else {
+                                        // Handle the publish feed callback
+                                        NSDictionary *urlParams = [self parseURLParams:[resultURL query]];
+                                        if (![urlParams valueForKey:@"post_id"]) {
+                                            // User clicked the Cancel button
+                                            NSLog(@"[DEBUG] User cancelled.");
+                                        } else {
+                                            // User clicked the Share button
+                                            NSLog(@"Facebook share success!");
+                                        }
+                                    }
+                                }
+                            }];
+
+        }, NO );
     }
 }
 
